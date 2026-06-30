@@ -1,0 +1,62 @@
+name: AI PR Review (Claude via Proxy)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get PR Diff
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+
+      - name: Send Diff to Claude Proxy
+        id: review
+        run: |
+          DIFF_CONTENT=$(cat pr_diff.txt | head -c 10000)
+
+          RESPONSE=$(curl -s -X POST "${{ secrets.PROXY_URL }}/v1/messages" \
+            -H "Authorization: Bearer ${{ secrets.PROXY_JWT_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<EOF
+          {
+            "model": "claude-opus-4-5",
+            "max_tokens": 1024,
+            "messages": [
+              {
+                "role": "user",
+                "content": "Review this PR:\n\nTitle: ${{ github.event.pull_request.title }}\n\nDiff:\n${DIFF_CONTENT}\n\nProvide feedback on bugs, quality, and improvements."
+              }
+            ]
+          }
+          EOF
+          )
+
+          # Extract review text from response
+          REVIEW=$(echo "$RESPONSE" | jq -r '.content[0].text')
+          echo "REVIEW<<EOF" >> $GITHUB_ENV
+          echo "$REVIEW" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Post Review as PR Comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const review = process.env.REVIEW;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Claude AI Review\n\n${review}`
+            });
