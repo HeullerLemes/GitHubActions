@@ -36,14 +36,19 @@ jobs:
             "messages": [
               {
                 "role": "user",
-                "content": "Review this PR:\n\nTitle: ${{ github.event.pull_request.title }}\n\nDiff:\n${DIFF_CONTENT}\n\nProvide feedback on bugs, quality, and improvements."
+                "content": "Review this PR diff:\n\n${DIFF_CONTENT}"
               }
             ]
           }
           EOF
           )
 
-          # Extract review text from response
+          # 👇 ADD THIS to see the raw response in Action logs
+          echo "=== RAW RESPONSE ==="
+          echo "$RESPONSE"
+          echo "===================="
+
+          # Try to extract the review
           REVIEW=$(echo "$RESPONSE" | jq -r '.content[0].text')
           echo "REVIEW<<EOF" >> $GITHUB_ENV
           echo "$REVIEW" >> $GITHUB_ENV
