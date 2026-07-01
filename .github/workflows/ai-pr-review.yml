@@ -24,31 +24,36 @@ jobs:
       - name: Send Diff to Claude Proxy
         id: review
         run: |
-          DIFF_CONTENT=$(cat pr_diff.txt | head -c 10000)
+          DIFF_CONTENT=$(cat pr_diff.txt | head -c 5000)
+
+          # 👇 Use jq to safely build the JSON — escapes all special characters
+          PAYLOAD=$(jq -n \
+            --arg diff "$DIFF_CONTENT" \
+            --arg title "${{ github.event.pull_request.title }}" \
+            '{
+              model: "claude-opus-4-5",
+              max_tokens: 1024,
+              messages: [
+                {
+                  role: "user",
+                  content: ("Review this PR:\n\nTitle: " + $title + "\n\nDiff:\n" + $diff)
+                }
+              ]
+            }')
+
+          echo "=== PAYLOAD ==="
+          echo "$PAYLOAD"
+          echo "==============="
 
           RESPONSE=$(curl -s -X POST "${{ secrets.PROXY_URL }}/v1/messages" \
             -H "Authorization: Bearer ${{ secrets.PROXY_JWT_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d @- <<EOF
-          {
-            "model": "claude-opus-4-5",
-            "max_tokens": 1024,
-            "messages": [
-              {
-                "role": "user",
-                "content": "Review this PR diff:\n\n${DIFF_CONTENT}"
-              }
-            ]
-          }
-          EOF
-          )
+            -d "$PAYLOAD")
 
-          # 👇 ADD THIS to see the raw response in Action logs
           echo "=== RAW RESPONSE ==="
           echo "$RESPONSE"
           echo "===================="
 
-          # Try to extract the review
           REVIEW=$(echo "$RESPONSE" | jq -r '.content[0].text')
           echo "REVIEW<<EOF" >> $GITHUB_ENV
           echo "$REVIEW" >> $GITHUB_ENV
